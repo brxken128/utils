@@ -3,10 +3,10 @@
 use crate::{atomic_fence, volatile_write, Zeroize};
 
 #[cfg(target_arch = "x86")]
-use core::arch::x86::*;
+use core::arch::x86::{__m128, __m128d, __m128i, __m256, __m256d, __m256i};
 
 #[cfg(target_arch = "x86_64")]
-use core::arch::x86_64::*;
+use core::arch::x86_64::{__m128, __m128d, __m128i, __m256, __m256d, __m256i};
 
 macro_rules! impl_zeroize_for_simd_register {
     ($($type:ty),* $(,)?) => {
