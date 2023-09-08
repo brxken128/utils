@@ -624,9 +624,31 @@ impl Zeroize for CString {
 
 /// `Zeroizing` is a a wrapper for any `Z: Zeroize` type which implements a
 /// `Drop` handler which zeroizes dropped values.
+#[cfg(not(feature = "alloc"))]
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Zeroizing<Z: Zeroize>(Z);
 
+/// `Zeroizing` is a a wrapper for any `Z: Zeroize` type which implements a
+/// `Drop` handler which zeroizes dropped values.
+#[cfg(feature = "alloc")]
+#[cfg_attr(feature = "alloc", repr(transparent))]
+#[derive(Debug, Default, Eq, PartialEq)]
+pub struct Zeroizing<Z: Zeroize>(Box<Z>);
+
+#[cfg(feature = "alloc")]
+impl<Z> Zeroizing<Z>
+where
+    Z: Zeroize,
+{
+    /// Move value inside a `Zeroizing` wrapper which ensures it will be
+    /// zeroized when it's dropped.
+    #[inline(always)]
+    pub fn new(value: Z) -> Self {
+        Self(Box::new(value))
+    }
+}
+
+#[cfg(not(feature = "alloc"))]
 impl<Z> Zeroizing<Z>
 where
     Z: Zeroize,
@@ -652,6 +674,18 @@ impl<Z: Zeroize + Clone> Clone for Zeroizing<Z> {
     }
 }
 
+#[cfg(feature = "alloc")]
+impl<Z> From<Z> for Zeroizing<Z>
+where
+    Z: Zeroize,
+{
+    #[inline(always)]
+    fn from(value: Z) -> Zeroizing<Z> {
+        Zeroizing(Box::new(value))
+    }
+}
+
+#[cfg(not(feature = "alloc"))]
 impl<Z> From<Z> for Zeroizing<Z>
 where
     Z: Zeroize,
@@ -684,6 +718,31 @@ where
     }
 }
 
+#[cfg(feature = "alloc")]
+impl<T, Z> AsRef<T> for Zeroizing<Z>
+where
+    T: ?Sized,
+    Z: AsRef<T> + Zeroize,
+{
+    #[inline(always)]
+    fn as_ref(&self) -> &T {
+        self.0.as_ref().as_ref()
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<T, Z> AsMut<T> for Zeroizing<Z>
+where
+    T: ?Sized,
+    Z: AsMut<T> + Zeroize,
+{
+    #[inline(always)]
+    fn as_mut(&mut self) -> &mut T {
+        self.0.as_mut().as_mut()
+    }
+}
+
+#[cfg(not(feature = "alloc"))]
 impl<T, Z> AsRef<T> for Zeroizing<Z>
 where
     T: ?Sized,
@@ -695,6 +754,7 @@ where
     }
 }
 
+#[cfg(not(feature = "alloc"))]
 impl<T, Z> AsMut<T> for Zeroizing<Z>
 where
     T: ?Sized,
@@ -740,7 +800,21 @@ where
     }
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", feature = "alloc"))]
+impl<'de, Z> serde::Deserialize<'de> for Zeroizing<Z>
+where
+    Z: Zeroize + serde::Deserialize<'de>,
+{
+    #[inline(always)]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self(Box::new(Z::deserialize(deserializer)?)))
+    }
+}
+
+#[cfg(all(feature = "serde", not(feature = "alloc")))]
 impl<'de, Z> serde::Deserialize<'de> for Zeroizing<Z>
 where
     Z: Zeroize + serde::Deserialize<'de>,
