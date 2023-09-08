@@ -318,10 +318,10 @@ impl_zeroize_with_default! {
     u8, u16, u32, u64, u128, usize
 }
 
-/// `PhantomPinned` is zero sized so provide a ZeroizeOnDrop implementation.
+/// `PhantomPinned` is zero sized so provide a [`ZeroizeOnDrop`] implementation.
 impl ZeroizeOnDrop for PhantomPinned {}
 
-/// `()` is zero sized so provide a ZeroizeOnDrop implementation.
+/// `()` is zero sized so provide a [`ZeroizeOnDrop`] implementation.
 impl ZeroizeOnDrop for () {}
 
 macro_rules! impl_zeroize_for_non_zero {
@@ -440,7 +440,7 @@ impl<Z> Zeroize for MaybeUninit<Z> {
     fn zeroize(&mut self) {
         // Safety:
         // `MaybeUninit` is valid for any byte pattern, including zeros.
-        unsafe { ptr::write_volatile(self, MaybeUninit::zeroed()) }
+        unsafe { ptr::write_volatile(self, Self::zeroed()) }
         atomic_fence();
     }
 }
@@ -458,7 +458,7 @@ impl<Z> Zeroize for [MaybeUninit<Z>] {
     fn zeroize(&mut self) {
         let ptr = self.as_mut_ptr().cast::<MaybeUninit<u8>>();
         let size = self.len().checked_mul(mem::size_of::<Z>()).unwrap();
-        assert!(size <= isize::MAX as usize);
+        assert!(isize::try_from(size).is_ok());
 
         // Safety:
         //
@@ -484,7 +484,7 @@ where
     Z: DefaultIsZeroes,
 {
     fn zeroize(&mut self) {
-        assert!(self.len() <= isize::MAX as usize);
+        assert!(isize::try_from(self.len()).is_ok());
 
         // Safety:
         //
@@ -510,7 +510,7 @@ impl<Z> Zeroize for PhantomData<Z> {
     fn zeroize(&mut self) {}
 }
 
-/// [`PhantomData` is always zero sized so provide a ZeroizeOnDrop implementation.
+/// [`PhantomData` is always zero sized so provide a [`ZeroizeOnDrop`] implementation.
 impl<Z> ZeroizeOnDrop for PhantomData<Z> {}
 
 macro_rules! impl_zeroize_tuple {
@@ -615,7 +615,7 @@ impl Zeroize for CString {
         buf.zeroize();
 
         // expect() should never fail, because zeroize() truncates the Vec
-        let zeroed = CString::new(buf).expect("buf not truncated");
+        let zeroed = Self::new(buf).expect("buf not truncated");
 
         // Replace self by the zeroed CString to maintain the original ptr of the buffer
         let _ = mem::replace(self, zeroed);
@@ -642,7 +642,7 @@ where
 {
     /// Move value inside a `Zeroizing` wrapper which ensures it will be
     /// zeroized when it's dropped.
-    #[inline(always)]
+    #[inline]
     pub fn new(value: Z) -> Self {
         Self(Box::new(value))
     }
@@ -655,19 +655,19 @@ where
 {
     /// Move value inside a `Zeroizing` wrapper which ensures it will be
     /// zeroized when it's dropped.
-    #[inline(always)]
+    #[inline]
     pub fn new(value: Z) -> Self {
         Self(value)
     }
 }
 
 impl<Z: Zeroize + Clone> Clone for Zeroizing<Z> {
-    #[inline(always)]
+    #[inline]
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 
-    #[inline(always)]
+    #[inline]
     fn clone_from(&mut self, source: &Self) {
         self.0.zeroize();
         self.0.clone_from(&source.0);
@@ -679,9 +679,9 @@ impl<Z> From<Z> for Zeroizing<Z>
 where
     Z: Zeroize,
 {
-    #[inline(always)]
-    fn from(value: Z) -> Zeroizing<Z> {
-        Zeroizing(Box::new(value))
+    #[inline]
+    fn from(value: Z) -> Self {
+        Self(Box::new(value))
     }
 }
 
@@ -690,9 +690,9 @@ impl<Z> From<Z> for Zeroizing<Z>
 where
     Z: Zeroize,
 {
-    #[inline(always)]
-    fn from(value: Z) -> Zeroizing<Z> {
-        Zeroizing(value)
+    #[inline]
+    fn from(value: Z) -> Self {
+        Self(value)
     }
 }
 
@@ -702,7 +702,7 @@ where
 {
     type Target = Z;
 
-    #[inline(always)]
+    #[inline]
     fn deref(&self) -> &Z {
         &self.0
     }
@@ -712,7 +712,7 @@ impl<Z> ops::DerefMut for Zeroizing<Z>
 where
     Z: Zeroize,
 {
-    #[inline(always)]
+    #[inline]
     fn deref_mut(&mut self) -> &mut Z {
         &mut self.0
     }
@@ -724,7 +724,7 @@ where
     T: ?Sized,
     Z: AsRef<T> + Zeroize,
 {
-    #[inline(always)]
+    #[inline]
     fn as_ref(&self) -> &T {
         self.0.as_ref().as_ref()
     }
@@ -736,7 +736,7 @@ where
     T: ?Sized,
     Z: AsMut<T> + Zeroize,
 {
-    #[inline(always)]
+    #[inline]
     fn as_mut(&mut self) -> &mut T {
         self.0.as_mut().as_mut()
     }
@@ -748,7 +748,7 @@ where
     T: ?Sized,
     Z: AsRef<T> + Zeroize,
 {
-    #[inline(always)]
+    #[inline]
     fn as_ref(&self) -> &T {
         self.0.as_ref()
     }
@@ -760,7 +760,7 @@ where
     T: ?Sized,
     Z: AsMut<T> + Zeroize,
 {
-    #[inline(always)]
+    #[inline]
     fn as_mut(&mut self) -> &mut T {
         self.0.as_mut()
     }
@@ -782,21 +782,21 @@ where
     Z: Zeroize,
 {
     fn drop(&mut self) {
-        self.0.zeroize()
+        self.0.zeroize();
     }
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", feature = "alloc"))]
 impl<Z> serde::Serialize for Zeroizing<Z>
 where
     Z: Zeroize + serde::Serialize,
 {
-    #[inline(always)]
+    #[inline]
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        self.0.serialize(serializer)
+        self.0.as_ref().serialize(serializer)
     }
 }
 
@@ -805,7 +805,7 @@ impl<'de, Z> serde::Deserialize<'de> for Zeroizing<Z>
 where
     Z: Zeroize + serde::Deserialize<'de>,
 {
-    #[inline(always)]
+    #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -819,7 +819,7 @@ impl<'de, Z> serde::Deserialize<'de> for Zeroizing<Z>
 where
     Z: Zeroize + serde::Deserialize<'de>,
 {
-    #[inline(always)]
+    #[inline]
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -828,16 +828,30 @@ where
     }
 }
 
+#[cfg(all(feature = "serde", not(feature = "alloc")))]
+impl<Z> serde::Serialize for Zeroizing<Z>
+where
+    Z: Zeroize + serde::Serialize,
+{
+    #[inline]
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
 /// Use fences to prevent accesses from being reordered before this
 /// point, which should hopefully help ensure that all accessors
 /// see zeroes after this point.
-#[inline(always)]
+#[inline]
 fn atomic_fence() {
     atomic::compiler_fence(atomic::Ordering::SeqCst);
 }
 
 /// Perform a volatile write to the destination
-#[inline(always)]
+#[inline]
 fn volatile_write<T: Copy + Sized>(dst: &mut T, src: T) {
     unsafe { ptr::write_volatile(dst, src) }
 }
@@ -850,7 +864,7 @@ fn volatile_write<T: Copy + Sized>(dst: &mut T, src: T) {
 /// `count` must not be larger than an `isize`.
 /// `dst` being offset by `mem::size_of::<T> * count` bytes must not wrap around the address space.
 /// Also `dst` must be properly aligned.
-#[inline(always)]
+#[inline]
 unsafe fn volatile_set<T: Copy + Sized>(dst: *mut T, src: T, count: usize) {
     // TODO(tarcieri): use `volatile_set_memory` when stabilized
     for i in 0..count {
@@ -872,8 +886,7 @@ unsafe fn volatile_set<T: Copy + Sized>(dst: *mut T, src: T, count: usize) {
 /// Internal module used as support for `AssertZeroizeOnDrop`.
 #[doc(hidden)]
 pub mod __internal {
-    use super::*;
-
+    use super::{Zeroize, ZeroizeOnDrop};
     /// Auto-deref workaround for deriving `ZeroizeOnDrop`.
     pub trait AssertZeroizeOnDrop {
         fn zeroize_or_on_drop(self);
@@ -890,7 +903,7 @@ pub mod __internal {
 
     impl<T: Zeroize + ?Sized> AssertZeroize for T {
         fn zeroize_or_on_drop(&mut self) {
-            self.zeroize()
+            self.zeroize();
         }
     }
 }

@@ -5,7 +5,9 @@
 
 use crate::{atomic_fence, volatile_write, Zeroize};
 
-use core::arch::aarch64::*;
+use core::arch::aarch64::{
+    uint16x4_t, uint16x8_t, uint32x2_t, uint32x4_t, uint64x1_t, uint64x2_t, uint8x16_t, uint8x8_t,
+};
 
 macro_rules! impl_zeroize_for_simd_register {
     ($($type:ty),* $(,)?) => {
