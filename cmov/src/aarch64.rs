@@ -36,6 +36,30 @@ macro_rules! csel_eq {
     };
 }
 
+impl Cmov for u8 {
+    #[inline]
+    fn cmovnz(&mut self, value: &Self, condition: Condition) {
+        csel!("csel {1:w}, {2:w}, {3:w}, NE", self, value, condition);
+    }
+
+    #[inline]
+    fn cmovz(&mut self, value: &Self, condition: Condition) {
+        csel!("csel {1:w}, {2:w}, {3:w}, EQ", self, value, condition);
+    }
+}
+
+impl CmovEq for u8 {
+    #[inline]
+    fn cmovne(&self, rhs: &Self, input: Condition, output: &mut Condition) {
+        csel_eq!("csel {3:w}, {4:w}, {5:w}, NE", self, rhs, input, output);
+    }
+
+    #[inline]
+    fn cmoveq(&self, rhs: &Self, input: Condition, output: &mut Condition) {
+        csel_eq!("csel {3:w}, {4:w}, {5:w}, EQ", self, rhs, input, output);
+    }
+}
+
 impl Cmov for u16 {
     #[inline]
     fn cmovnz(&mut self, value: &Self, condition: Condition) {
