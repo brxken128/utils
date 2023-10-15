@@ -18,24 +18,21 @@ macro_rules! csel {
 }
 
 macro_rules! csel_eq {
-    ($instruction:expr, $lhs:expr, $rhs:expr, $condition:expr, $dst:expr) => {
-        let mut tmp = *$dst as u16;
+    ($csel:expr, $lhs:expr, $rhs:expr, $condition:expr, $dst:expr) => {
         unsafe {
             asm! {
                 "eor {0:w}, {1:w}, {2:w}",
                 "cmp {0:w}, 0",
-                $instruction,
+                $csel,
                 out(reg) _,
                 in(reg) *$lhs,
                 in(reg) *$rhs,
-                inlateout(reg) tmp,
-                in(reg) $condition as u16,
-                in(reg) tmp,
+                inlateout(reg) *$dst,
+                in(reg) $condition,
+                in(reg) *$dst,
                 options(pure, nomem, nostack),
             };
         };
-
-        *$dst = tmp as u8;
     };
 }
 
