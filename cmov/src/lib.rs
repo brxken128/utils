@@ -61,7 +61,7 @@ pub trait CmovEq {
     }
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64", miri))]
+#[cfg(any(not(target_arch = "aarch64"), miri))]
 impl Cmov for u8 {
     #[inline]
     fn cmovnz(&mut self, value: &Self, condition: Condition) {
@@ -78,7 +78,7 @@ impl Cmov for u8 {
     }
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64", miri))]
+#[cfg(any(not(target_arch = "aarch64"), miri))]
 impl CmovEq for u8 {
     #[inline]
     fn cmoveq(&self, rhs: &Self, input: Condition, output: &mut Condition) {
