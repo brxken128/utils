@@ -1,4 +1,6 @@
 //! [`Zeroize`] impls for x86 SIMD registers
+//!
+//! `AVX512` registers may be zeroized with the `avx512` feature (MSRV is 1.73).
 
 use crate::{atomic_fence, volatile_write, Zeroize};
 
@@ -24,3 +26,6 @@ macro_rules! impl_zeroize_for_simd_register {
 }
 
 impl_zeroize_for_simd_register!(__m128, __m128d, __m128i, __m256, __m256d, __m256i);
+
+#[cfg(feature = "avx512")]
+impl_zeroize_for_simd_register!(__m512, __m512d, __m512i);
