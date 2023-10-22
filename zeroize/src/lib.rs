@@ -26,6 +26,7 @@
 //! - No FFI or inline assembly! **WASM friendly** (and tested)!
 //! - `#![no_std]` i.e. **embedded-friendly**!
 //! - No functionality besides securely zeroing memory!
+//! - Support for zeroing SIMD registers on `x86`, `x86_64`, `aarch64` and `wasm` targets!
 //! - (Optional) Custom derive support for zeroing complex structures
 //!
 //! ## Minimum Supported Rust Version
@@ -33,7 +34,7 @@
 //! Requires Rust **1.60** or newer.
 //!
 //! In the future, we reserve the right to change MSRV (i.e. MSRV is out-of-scope
-//! for this crate's SemVer guarantees), however when we do it will be accompanied
+//! for this crate's `SemVer` guarantees), however when we do it will be accompanied
 //! by a minor version bump.
 //!
 //! ## Usage
@@ -41,15 +42,13 @@
 //! ```
 //! use zeroize::Zeroize;
 //!
-//! fn main() {
-//!     // Protip: don't embed secrets in your source code.
-//!     // This is just an example.
-//!     let mut secret = b"Air shield password: 1,2,3,4,5".to_vec();
-//!     // [ ... ] open the air shield here
+//! // Protip: don't embed secrets in your source code.
+//! // This is just an example.
+//! let mut secret = b"Air shield password: 1,2,3,4,5".to_vec();
+//! // [ ... ] open the air shield here
 //!
-//!     // Now that we're done using the secret, zero it out.
-//!     secret.zeroize();
-//! }
+//! // Now that we're done using the secret, zero it out.
+//! secret.zeroize();
 //! ```
 //!
 //! The [`Zeroize`] trait is impl'd on all of Rust's core scalar types including
@@ -143,16 +142,14 @@
 //! ```
 //! use zeroize::Zeroizing;
 //!
-//! fn main() {
-//!     let mut secret = Zeroizing::new([0u8; 5]);
+//! let mut secret = Zeroizing::new([0u8; 5]);
 //!
-//!     // Set the air shield password
-//!     // Protip (again): don't embed secrets in your source code.
-//!     secret.copy_from_slice(&[1, 2, 3, 4, 5]);
-//!     assert_eq!(secret.as_ref(), &[1, 2, 3, 4, 5]);
+//! // Set the air shield password
+//! // Protip (again): don't embed secrets in your source code.
+//! secret.copy_from_slice(&[1, 2, 3, 4, 5]);
+//! assert_eq!(secret.as_ref(), &[1, 2, 3, 4, 5]);
 //!
-//!     // The contents of `secret` will be automatically zeroized on drop
-//! }
+//! // The contents of `secret` will be automatically zeroized on drop
 //! ```
 //!
 //! ## What guarantees does this crate provide?
@@ -208,15 +205,10 @@
 //!
 //! <https://crates.io/crates/secrecy>
 //!
-//! ## What about: clearing registers, mlock, mprotect, etc?
+//! ## What about: mlock, mprotect, etc?
 //!
 //! This crate is focused on providing simple, unobtrusive support for reliably
 //! zeroing memory using the best approach possible on stable Rust.
-//!
-//! Clearing registers is a difficult problem that can't easily be solved by
-//! something like a crate, and requires either inline ASM or rustc support.
-//! See <https://github.com/rust-lang/rust/issues/17046> for background on
-//! this particular problem.
 //!
 //! Other memory protection mechanisms are interesting and useful, but often
 //! overkill (e.g. defending against RAM scraping or attackers with swap access).
@@ -235,6 +227,8 @@
 //! [good cryptographic hygiene]: https://github.com/veorq/cryptocoding#clean-memory-of-secret-data
 //! [`Ordering::SeqCst`]: core::sync::atomic::Ordering::SeqCst
 
+#![allow(clippy::inline_always)]
+
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
@@ -245,8 +239,10 @@ extern crate std;
 #[cfg_attr(docsrs, doc(cfg(feature = "zeroize_derive")))]
 pub use zeroize_derive::{Zeroize, ZeroizeOnDrop};
 
-#[cfg(all(feature = "aarch64", target_arch = "aarch64"))]
+#[cfg(target_arch = "aarch64")]
 mod aarch64;
+#[cfg(all(target_arch = "wasm32", target_family = "wasm"))]
+mod wasm32;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 mod x86;
 
@@ -318,10 +314,10 @@ impl_zeroize_with_default! {
     u8, u16, u32, u64, u128, usize
 }
 
-/// `PhantomPinned` is zero sized so provide a ZeroizeOnDrop implementation.
+/// [`PhantomPinned`] is zero sized so provide a [`ZeroizeOnDrop`] implementation.
 impl ZeroizeOnDrop for PhantomPinned {}
 
-/// `()` is zero sized so provide a ZeroizeOnDrop implementation.
+/// `()` is zero sized so provide a [`ZeroizeOnDrop`] implementation.
 impl ZeroizeOnDrop for () {}
 
 macro_rules! impl_zeroize_for_non_zero {
@@ -399,7 +395,7 @@ where
 
             // Ensures self is None and that the value was dropped. Without the take, the drop
             // of the (zeroized) value isn't called, which might lead to a leak or other
-            // unexpected behavior. For example, if this were Option<Vec<T>>, the above call to
+            // unexpected behavior. For example, if this were `Option<Vec<T>>`, the above call to
             // zeroize would not free the allocated memory, but the the `take` call will.
             self.take();
         }
@@ -440,7 +436,7 @@ impl<Z> Zeroize for MaybeUninit<Z> {
     fn zeroize(&mut self) {
         // Safety:
         // `MaybeUninit` is valid for any byte pattern, including zeros.
-        unsafe { ptr::write_volatile(self, MaybeUninit::zeroed()) }
+        unsafe { ptr::write_volatile(self, Self::zeroed()) }
         atomic_fence();
     }
 }
@@ -458,12 +454,12 @@ impl<Z> Zeroize for [MaybeUninit<Z>] {
     fn zeroize(&mut self) {
         let ptr = self.as_mut_ptr().cast::<MaybeUninit<u8>>();
         let size = self.len().checked_mul(mem::size_of::<Z>()).unwrap();
-        assert!(size <= isize::MAX as usize);
+        assert!(isize::try_from(size).is_ok());
 
         // Safety:
         //
         // This is safe, because every valid pointer is well aligned for u8
-        // and it is backed by a single allocated object for at least `self.len() * size_pf::<Z>()` bytes.
+        // and it is backed by a single allocated object for at least `self.len() * size_of::<Z>()` bytes.
         // and 0 is a valid value for `MaybeUninit<Z>`
         // The memory of the slice should not wrap around the address space.
         unsafe { volatile_set(ptr, MaybeUninit::zeroed(), size) }
@@ -484,7 +480,7 @@ where
     Z: DefaultIsZeroes,
 {
     fn zeroize(&mut self) {
-        assert!(self.len() <= isize::MAX as usize);
+        assert!(isize::try_from(self.len()).is_ok());
 
         // Safety:
         //
@@ -510,7 +506,7 @@ impl<Z> Zeroize for PhantomData<Z> {
     fn zeroize(&mut self) {}
 }
 
-/// [`PhantomData` is always zero sized so provide a ZeroizeOnDrop implementation.
+/// [`PhantomData`] is always zero sized so provide a [`ZeroizeOnDrop`] implementation.
 impl<Z> ZeroizeOnDrop for PhantomData<Z> {}
 
 macro_rules! impl_zeroize_tuple {
@@ -622,8 +618,8 @@ impl Zeroize for CString {
     }
 }
 
-/// `Zeroizing` is a a wrapper for any `Z: Zeroize` type which implements a
-/// `Drop` handler which zeroizes dropped values.
+/// [`Zeroizing`] is a a wrapper for any `Z: Zeroize` type which implements a
+/// [`Drop`] handler which zeroizes dropped values.
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct Zeroizing<Z: Zeroize>(Z);
 
@@ -631,10 +627,10 @@ impl<Z> Zeroizing<Z>
 where
     Z: Zeroize,
 {
-    /// Move value inside a `Zeroizing` wrapper which ensures it will be
+    /// Move value inside a [`Zeroizing`] wrapper which ensures it will be
     /// zeroized when it's dropped.
     #[inline(always)]
-    pub fn new(value: Z) -> Self {
+    pub const fn new(value: Z) -> Self {
         Self(value)
     }
 }
@@ -657,8 +653,8 @@ where
     Z: Zeroize,
 {
     #[inline(always)]
-    fn from(value: Z) -> Zeroizing<Z> {
-        Zeroizing(value)
+    fn from(value: Z) -> Self {
+        Self(value)
     }
 }
 
@@ -722,7 +718,7 @@ where
     Z: Zeroize,
 {
     fn drop(&mut self) {
-        self.0.zeroize()
+        self.0.zeroize();
     }
 }
 
@@ -798,7 +794,7 @@ unsafe fn volatile_set<T: Copy + Sized>(dst: *mut T, src: T, count: usize) {
 /// Internal module used as support for `AssertZeroizeOnDrop`.
 #[doc(hidden)]
 pub mod __internal {
-    use super::*;
+    use super::{Zeroize, ZeroizeOnDrop};
 
     /// Auto-deref workaround for deriving `ZeroizeOnDrop`.
     pub trait AssertZeroizeOnDrop {
@@ -816,7 +812,7 @@ pub mod __internal {
 
     impl<T: Zeroize + ?Sized> AssertZeroize for T {
         fn zeroize_or_on_drop(&mut self) {
-            self.zeroize()
+            self.zeroize();
         }
     }
 }
