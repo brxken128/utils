@@ -28,7 +28,8 @@ macro_rules! impl_zeroize_for_simd_register {
 
     ($feature:expr, $($type:ty),*) => {
         $(
-            #[cfg_attr(docsrs, doc(cfg(all(any(target_arch = "x86", target_arch = "x86_64"), feature = $feature))))]
+            #[cfg_attr(docsrs, doc(cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = $feature))))]
+            #[cfg(target_feature = $feature)]
             impl Zeroize for $type {
                 #[inline]
                 fn zeroize(&mut self) {
