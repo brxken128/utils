@@ -9,14 +9,16 @@
 #[cfg(not(miri))]
 #[cfg(target_arch = "aarch64")]
 mod aarch64;
+
+#[cfg(not(miri))]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod x86;
+
 #[cfg(any(
     not(any(target_arch = "aarch64", target_arch = "x86", target_arch = "x86_64")),
     miri
 ))]
 mod portable;
-#[cfg(not(miri))]
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-mod x86;
 
 /// Condition
 pub type Condition = u8;
@@ -59,6 +61,7 @@ pub trait CmovEq {
     }
 }
 
+#[cfg(any(not(target_arch = "aarch64"), miri))]
 impl Cmov for u8 {
     #[inline]
     fn cmovnz(&mut self, value: &Self, condition: Condition) {
@@ -75,6 +78,7 @@ impl Cmov for u8 {
     }
 }
 
+#[cfg(any(not(target_arch = "aarch64"), miri))]
 impl CmovEq for u8 {
     #[inline]
     fn cmoveq(&self, rhs: &Self, input: Condition, output: &mut Condition) {
@@ -118,9 +122,9 @@ impl CmovEq for u128 {
         let hi = (*self >> 64) as u64;
 
         let mut tmp = 1u8;
-        lo.cmovne(&((*rhs & u64::MAX as u128) as u64), 0, &mut tmp);
-        hi.cmovne(&((*rhs >> 64) as u64), 0, &mut tmp);
-        tmp.cmoveq(&0, input, output);
+        lo.cmovne(&((*rhs & u64::MAX as u128) as u64), 0u8, &mut tmp);
+        hi.cmovne(&((*rhs >> 64) as u64), 0u8, &mut tmp);
+        tmp.cmoveq(&0u8, input, output);
     }
 
     #[inline]
@@ -129,8 +133,8 @@ impl CmovEq for u128 {
         let hi = (*self >> 64) as u64;
 
         let mut tmp = 1u8;
-        lo.cmovne(&((*rhs & u64::MAX as u128) as u64), 0, &mut tmp);
-        hi.cmovne(&((*rhs >> 64) as u64), 0, &mut tmp);
+        lo.cmovne(&((*rhs & u64::MAX as u128) as u64), 0u8, &mut tmp);
+        hi.cmovne(&((*rhs >> 64) as u64), 0u8, &mut tmp);
         tmp.cmoveq(&1, input, output);
     }
 }
@@ -151,8 +155,8 @@ impl<T: CmovEq> CmovEq for [T] {
         }
 
         // Compare each byte.
-        for (a, b) in self.iter().zip(rhs.iter()) {
-            a.cmovne(b, input, output);
-        }
+        self.iter()
+            .zip(rhs.iter())
+            .for_each(|(a, b)| a.cmovne(b, input, output));
     }
 }
